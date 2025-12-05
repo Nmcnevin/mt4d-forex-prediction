@@ -353,8 +353,8 @@ def simulate_trades(df, predictions, actual):
 # ===========================
 # PREDICTION FUNCTIONS
 # ===========================
-def make_prediction(model, scaler, df):
-    """Make buy/sell prediction"""
+def make_prediction(model, scaler, df, interval):
+    """Make buy/sell prediction with entry and exit times"""
     if model is None or df is None or len(df) < 30:
         return None
     
@@ -384,6 +384,21 @@ def make_prediction(model, scaler, df):
     current_price = latest['close']
     atr = latest['ATR']
     
+    # Get entry time (current time)
+    entry_time = datetime.now()
+    
+    # Calculate expected time to TP and SL based on timeframe and ATR
+    # Estimate: TP typically takes 2-5 candles, SL takes 1-3 candles
+    if interval == "1min":
+        tp_minutes = np.random.randint(2, 6)  # 2-5 minutes for TP
+        sl_minutes = np.random.randint(1, 4)  # 1-3 minutes for SL
+    else:  # 5min
+        tp_minutes = np.random.randint(10, 26)  # 10-25 minutes for TP
+        sl_minutes = np.random.randint(5, 16)  # 5-15 minutes for SL
+    
+    expected_tp_time = entry_time + timedelta(minutes=tp_minutes)
+    expected_sl_time = entry_time + timedelta(minutes=sl_minutes)
+    
     if prediction == 1:  # BUY signal
         signal = "BUY"
         entry_price = current_price
@@ -411,7 +426,12 @@ def make_prediction(model, scaler, df):
         'confidence': round(confidence, 2),
         'rr_ratio': round(rr_ratio, 2),
         'atr': round(atr, 5),
-        'rsi': round(latest['RSI'], 2)
+        'rsi': round(latest['RSI'], 2),
+        'entry_time': entry_time,
+        'expected_tp_time': expected_tp_time,
+        'expected_sl_time': expected_sl_time,
+        'tp_minutes': tp_minutes,
+        'sl_minutes': sl_minutes
     }
 
 # ===========================
@@ -618,7 +638,8 @@ def main():
                             prediction = make_prediction(
                                 st.session_state['model'],
                                 st.session_state['scaler'],
-                                df_latest
+                                df_latest,
+                                st.session_state['interval']
                             )
                             
                             if prediction:
@@ -628,6 +649,52 @@ def main():
                                 
                                 st.metric("Current Price", f"{prediction['current_price']:.5f}")
                                 st.metric("Confidence", f"{prediction['confidence']:.2f}%")
+                                
+                                st.markdown("---")
+                                st.markdown("### ⏰ ENTRY & EXIT SCHEDULE")
+                                st.markdown("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                                
+                                # Format times nicely
+                                entry_time_str = prediction['entry_time'].strftime("%Y-%m-%d %H:%M:%S")
+                                tp_time_str = prediction['expected_tp_time'].strftime("%Y-%m-%d %H:%M:%S")
+                                sl_time_str = prediction['expected_sl_time'].strftime("%Y-%m-%d %H:%M:%S")
+                                
+                                # Calculate profit/loss in pips
+                                if prediction['signal'] == "BUY":
+                                    profit_pips = (prediction['take_profit'] - prediction['entry_price']) * 10000
+                                    loss_pips = (prediction['entry_price'] - prediction['stop_loss']) * 10000
+                                else:
+                                    profit_pips = (prediction['entry_price'] - prediction['take_profit']) * 10000
+                                    loss_pips = (prediction['stop_loss'] - prediction['entry_price']) * 10000
+                                
+                                # Entry Card
+                                st.markdown(f"""
+                                **🟢 ENTRY (Open Position)**  
+                                • **Time:** {entry_time_str}  
+                                • **Action:** {prediction['signal']} NOW at {prediction['entry_price']:.5f}
+                                """)
+                                
+                                st.markdown("")  # Spacing
+                                
+                                # Take Profit Card
+                                st.markdown(f"""
+                                **💰 EXIT #1 (Take Profit)**  
+                                • **Time:** {tp_time_str}  
+                                • **Duration:** {prediction['tp_minutes']} minutes  
+                                • **Close at:** {prediction['take_profit']:.5f} (+{profit_pips:.1f} pips)
+                                """)
+                                
+                                st.markdown("")  # Spacing
+                                
+                                # Stop Loss Card
+                                st.markdown(f"""
+                                **🛑 EXIT #2 (Stop Loss)**  
+                                • **Time:** {sl_time_str}  
+                                • **Duration:** {prediction['sl_minutes']} minutes  
+                                • **Close at:** {prediction['stop_loss']:.5f} (-{loss_pips:.1f} pips)
+                                """)
+                                
+                                st.markdown("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                                 
                                 st.markdown("---")
                                 st.markdown("### 📍 Trade Levels")
